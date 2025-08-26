@@ -1,11 +1,10 @@
-// server.js
-import express from "express";
-import cors from "cors";
-import fetch from "node-fetch";
-import bodyParser from "body-parser";
-import dotenv from "dotenv";
+// backend/server.js
 
-dotenv.config();
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const axios = require("axios");
+require("dotenv").config(); // load .env variables
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,67 +12,60 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// Load API keys from .env
-const BLOCKCYPHER_TOKEN = process.env.BLOCKCYPHER_TOKEN;
-const QUICKNODE_RPC = process.env.QUICKNODE_RPC;
-
-// In-memory database (replace with real DB for production)
+// Simple in-memory storage
 const balances = {};
-const referralLogs = [];
+const referrals = {};
 
-// --- ROUTES ---
-
-// Get balance
+// Example: Get balance for a referral
 app.get("/balance", (req, res) => {
   const ref = req.query.ref;
-  res.json({ balance: balances[ref] || 0 });
+  if (!ref) return res.status(400).json({ error: "Missing ref" });
+  const balance = balances[ref] || 0;
+  res.json({ balance });
 });
 
-// Log referral
+// Example: Log referral
 app.post("/log-referral", (req, res) => {
   const { ref, amount } = req.body;
-  if (!ref || !amount) return res.json({ success: false, error: "Missing parameters" });
+  if (!ref || !amount) return res.status(400).json({ error: "Missing ref or amount" });
 
-  balances[ref] = (balances[ref] || 0) + parseFloat(amount);
-  referralLogs.push({ ref, amount, timestamp: Date.now() });
-  res.json({ success: true });
+  referrals[ref] = referrals[ref] || 0;
+  referrals[ref] += amount;
+
+  balances[ref] = balances[ref] || 0;
+  balances[ref] += amount;
+
+  res.json({ success: true, total: balances[ref] });
 });
 
-// Log messages (for blogger/debugging)
+// Example: Logging from frontend
 app.post("/log", (req, res) => {
   const { entry } = req.body;
-  console.log("LOG:", entry);
+  console.log("[Frontend Log]", entry);
   res.json({ success: true });
 });
 
-// Withdraw Bitcoin (mainnet)
+// Example: Send BTC using BlockCypher API
 app.post("/withdraw", async (req, res) => {
-  const { type, amount, address } = req.body;
-
-  if (!type || !amount || !address) return res.json({ success: false, error: "Missing parameters" });
+  const { address, amount } = req.body;
+  if (!address || !amount) return res.status(400).json({ error: "Missing address or amount" });
 
   try {
-    if (type === "BTC") {
-      // BlockCypher create transaction
-      const url = `https://api.blockcypher.com/v1/btc/main/txs/new?token=${BLOCKCYPHER_TOKEN}`;
-      // Build minimal unsigned TX (simplified)
-      const txBody = {
-        inputs: [{ addresses: [process.env.BTC_ADDRESS] }],
-        outputs: [{ addresses: [address], value: Math.floor(parseFloat(amount) * 1e8) }]
-      };
-      const response = await fetch(url, { method: "POST", body: JSON.stringify(txBody), headers: { "Content-Type": "application/json" } });
-      const data = await response.json();
-      // Sign & send would require private key (omitted for security)
-      res.json({ success: true, tx: data });
-    } else if (type === "BEP20") {
-      // Example BEP20 transfer using QuickNode
-      res.json({ success: true, tx: "BEP20 transfer simulated (implement web3/ethers.js)" });
-    } else {
-      res.json({ success: false, error: "Unknown withdrawal type" });
-    }
+    const token = process.env.BLOCKCYPHER_TOKEN;
+    // Example request to BlockCypher (testnet/mainnet depends on your key)
+    const response = await axios.post(
+      `https://api.blockcypher.com/v1/btc/main/txs/new?token=${token}`,
+      {
+        // Construct transaction payload here
+      }
+    );
+    res.json({ success: true, tx: response.data });
   } catch (err) {
-    res.json({ success: false, error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "BTC withdrawal failed", details: err.message });
   }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
